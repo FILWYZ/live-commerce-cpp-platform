@@ -1,0 +1,17 @@
+server:
+  host: 127.0.0.1
+  port: 8080
+  max_connections: 10000
+runtime:
+  worker_threads: 4
+  queue_capacity: 4096
+cache:
+  shards: 16
+  capacity_per_shard: 1024
+  product_ttl_ms: 30000
+flash_sale:
+  inventory_mode: local
+  queue: local
+storage:
+  snapshot_path: /tmp/ecommerce.snapshot
+  wal_path: /tmp/ecommerce.wal

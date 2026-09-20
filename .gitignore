@@ -1,0 +1,17 @@
+build/
+build-*/
+cmake-build-*/
+.cache/
+compile_commands.json
+*.log
+*.dSYM/
+*.profraw
+*.profdata
+coverage/
+data/
+runtime/
+frontend/node_modules/
+frontend/dist/
+
+# Detailed interview guide is kept locally and must not be uploaded.
+PROJECT_TECHNICAL_GUIDE.md

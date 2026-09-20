@@ -1,0 +1,9 @@
+server:
+  host: 127.0.0.1
+  port: 18080
+  max_connections: 100000
+benchmark:
+  concurrency: 10000
+  duration_seconds: 30
+  payload_bytes: 256
+  report_percentiles: true
