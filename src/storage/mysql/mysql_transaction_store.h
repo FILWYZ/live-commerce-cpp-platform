@@ -3,10 +3,12 @@
 #include "business/order/order_transaction_store.h"
 #include "business/flash_sale/flash_sale_order_repository.h"
 #include "storage/mysql/mysql_connection_pool.h"
+#include "observability/metrics/metrics_registry.h"
 
 #include <mysql/mysql.h>
 
 #include <cstdint>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <string>
@@ -28,6 +30,7 @@ public:
                            const std::string& database, std::size_t pool_size);
     void close();
     bool connected() const;
+    void setMetrics(::live::observability::MetricsRegistry* metrics) { metrics_ = metrics; }
 
     common::Status getOrder(const std::string& order_id, ::live::business::order::Order* order) const override;
     common::Status initializeSku(const std::string& sku_id, std::int64_t quantity) override;
@@ -45,7 +48,10 @@ private:
     std::string quote(MYSQL* connection, const std::string& value) const;
     common::Status loadOrder(MYSQL* connection, const std::string& order_id, ::live::business::order::Order* order) const;
     common::Status appendOutbox(MYSQL* connection, const ::live::messaging::Event& event) const;
+    void recordSql(const char* operation, const common::Status& status,
+                   std::chrono::steady_clock::time_point started) const;
     std::unique_ptr<MySqlConnectionPool> pool_;
+    ::live::observability::MetricsRegistry* metrics_{nullptr};
 };
 
 }  // namespace live::storage::mysql

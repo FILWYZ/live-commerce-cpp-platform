@@ -5,7 +5,14 @@
 #include "storage/wal/wal.h"
 
 #include <mutex>
+#include <condition_variable>
+#include <chrono>
+#include <deque>
+#include <future>
+#include <memory>
+#include <shared_mutex>
 #include <string>
+#include <thread>
 #include <utility>
 #include <unordered_map>
 #include <vector>
@@ -29,14 +36,33 @@ public:
     std::vector<std::pair<std::string, std::string>> scanPrefix(const std::string& prefix) const;
 
 private:
-    common::Status apply(const WalRecord& record);
+    struct WriteRequest {
+        std::vector<WalRecord> records;
+        std::shared_ptr<std::promise<common::Status>> completion;
+        bool barrier{false};
+    };
 
-    mutable std::mutex mutex_;
+    common::Status apply(const WalRecord& record);
+    common::Status submit(std::vector<WalRecord> records);
+    common::Status submitBarrier();
+    void runWriter();
+    void stopWriter();
+
+    mutable std::mutex data_mutex_;
+    mutable std::shared_mutex operation_gate_;
     std::unordered_map<std::string, std::string> data_;
     std::string snapshot_path_;
     Wal wal_;
     SnapshotStore snapshots_;
     int lock_fd_{-1};
+
+    std::mutex queue_mutex_;
+    std::condition_variable queue_condition_;
+    std::deque<WriteRequest> queue_;
+    std::thread writer_;
+    bool writer_stop_{false};
+    bool opened_{false};
+    common::Status writer_error_;
 };
 
 }  // namespace live::storage

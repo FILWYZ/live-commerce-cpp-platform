@@ -5,9 +5,9 @@
 namespace live::kv {
 
 common::Status RedisOrderQueue::connectBlockingConsumer(const std::string& host, std::uint16_t port,
-                                                        std::chrono::milliseconds timeout) {
+                                                        std::chrono::milliseconds timeout, std::size_t pool_size) {
     auto connection = std::make_unique<RedisKVStore>();
-    if (const auto status = connection->connect(host, port, timeout); !status.ok()) return status;
+    if (const auto status = connection->connect(host, port, timeout, pool_size); !status.ok()) return status;
     blocking_redis_ = std::move(connection);
     return common::Status::Ok();
 }

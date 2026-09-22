@@ -3,6 +3,9 @@
 #include "kv/kv_store.h"
 
 #include <cstdint>
+#include <condition_variable>
+#include <deque>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -19,9 +22,10 @@ public:
     ~RedisKVStore() override;
 
     common::Status connect(const std::string& host, std::uint16_t port,
-                           std::chrono::milliseconds timeout = std::chrono::seconds(2));
+                           std::chrono::milliseconds timeout = std::chrono::seconds(2),
+                           std::size_t pool_size = 8);
     void close();
-    bool connected() const { return context_ != nullptr; }
+    bool connected() const;
 
     common::Status get(const std::string& key, std::string* value) override;
     common::Status set(const std::string& key, const std::string& value,
@@ -37,6 +41,8 @@ public:
     common::Status evalInteger(const std::string& script, const std::vector<std::string>& keys,
                                const std::vector<std::string>& arguments, std::int64_t* result);
     common::Status hashGet(const std::string& key, const std::string& field, std::string* value);
+    common::Status hashGetMany(const std::string& key, const std::vector<std::string>& fields,
+                               std::vector<std::string>* values);
     common::Status hashSet(const std::string& key, const std::string& field, const std::string& value);
     common::Status listPush(const std::string& key, const std::string& value);
     common::Status listBlockingPop(const std::string& key, std::chrono::milliseconds timeout,
@@ -44,10 +50,16 @@ public:
     common::Status listLength(const std::string& key, std::size_t* length);
 
 private:
-    common::Status ensureConnected() const;
+    struct Connection;
+    std::shared_ptr<Connection> acquire(std::chrono::milliseconds timeout = std::chrono::seconds(3));
+    void release(std::shared_ptr<Connection> connection);
+
     mutable std::mutex mutex_;
-    redisContext* context_{nullptr};
-    std::unordered_map<std::string, std::string> script_shas_;
+    std::condition_variable condition_;
+    std::vector<std::shared_ptr<Connection>> connections_;
+    std::deque<std::shared_ptr<Connection>> idle_;
+    std::size_t in_use_{0};
+    bool closing_{true};
 };
 
 }  // namespace live::kv

@@ -9,6 +9,7 @@
 #include <chrono>
 #include <cstddef>
 #include <thread>
+#include <vector>
 
 namespace live::business::flash_sale {
 
@@ -19,9 +20,11 @@ public:
                            IFlashSaleOrderRepository* repository,
                            ::live::business::inventory::IInventoryGateway* inventory,
                            ::live::business::promotion::IAdmissionGate* admission_gate,
-                           std::size_t max_attempts = 5)
+                           std::size_t max_attempts = 5,
+                           std::size_t worker_count = 1)
         : queue_(queue), dead_letter_queue_(dead_letter_queue), repository_(repository), inventory_(inventory),
-                 admission_gate_(admission_gate), max_attempts_(max_attempts) {}
+                 admission_gate_(admission_gate), max_attempts_(max_attempts),
+                 worker_count_(worker_count == 0 ? 1 : worker_count) {}
     ~FlashSaleOrderConsumer() { stop(); }
 
     common::Status processOnce(std::chrono::milliseconds timeout = std::chrono::milliseconds(50));
@@ -42,7 +45,8 @@ private:
     ::live::business::promotion::IAdmissionGate* admission_gate_{nullptr};
     std::size_t max_attempts_{5};
     std::atomic<bool> running_{false};
-    std::thread worker_;
+    std::vector<std::thread> workers_;
+    const std::size_t worker_count_;
     std::atomic<std::size_t> processed_{0};
     std::atomic<std::size_t> dead_lettered_{0};
 };

@@ -127,12 +127,12 @@ common::Status RedisInventoryFastPath::rollbackRelease(const std::string& sku_id
 
 common::Status RedisInventoryFastPath::queryStock(const std::string& sku_id, StockSnapshot* snapshot) {
     if (sku_id.empty() || snapshot == nullptr) return common::Status::InvalidArgument("invalid Redis stock query");
-    std::string available;
-    std::string reserved;
-    std::string sold;
-    if (const auto status = redis_->hashGet(stockKey(sku_id), "available", &available); !status.ok()) return status;
-    if (const auto status = redis_->hashGet(stockKey(sku_id), "reserved", &reserved); !status.ok()) return status;
-    if (const auto status = redis_->hashGet(stockKey(sku_id), "sold", &sold); !status.ok()) return status;
+    std::vector<std::string> values;
+    if (const auto status = redis_->hashGetMany(stockKey(sku_id), {"available", "reserved", "sold"}, &values); !status.ok()) return status;
+    if (values.size() != 3) return common::Status::Internal("invalid Redis stock response");
+    const auto& available = values[0];
+    const auto& reserved = values[1];
+    const auto& sold = values[2];
     try {
         snapshot->available = std::stoll(available);
         snapshot->reserved = std::stoll(reserved);

@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace live::storage {
 
@@ -23,6 +24,7 @@ public:
 
     common::Status open(const std::string& path);
     common::Status append(const WalRecord& record, bool sync = true);
+    common::Status appendBatch(const std::vector<WalRecord>& records, bool sync = true);
     common::Status replay(const std::function<common::Status(const WalRecord&)>& apply) const;
     common::Status truncate();
     void close();

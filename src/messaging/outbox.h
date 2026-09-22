@@ -5,6 +5,7 @@
 
 #include <functional>
 #include <fstream>
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -26,12 +27,17 @@ public:
         pending_.push_back(std::move(event));
     }
 
-    common::Status drain(const std::function<common::Status(const Event&)>& publish) {
+    common::Status drain(const std::function<common::Status(const Event&)>& publish,
+                         std::size_t limit = 128) {
         if (!publish) return common::Status::InvalidArgument("outbox publisher must not be empty");
+        if (limit == 0) return common::Status::InvalidArgument("outbox drain limit must be positive");
         std::vector<Event> batch;
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            batch.swap(pending_);
+            const auto count = std::min(limit, pending_.size());
+            batch.reserve(count);
+            for (std::size_t i = 0; i < count; ++i) batch.push_back(std::move(pending_[i]));
+            pending_.erase(pending_.begin(), pending_.begin() + static_cast<std::ptrdiff_t>(count));
         }
         std::vector<Event> failed;
         for (const auto& event : batch) {
@@ -104,12 +110,17 @@ public:
         return common::Status::Ok();
     }
 
-    common::Status drain(const std::function<common::Status(const Event&)>& publish) {
+    common::Status drain(const std::function<common::Status(const Event&)>& publish,
+                         std::size_t limit = 128) {
         if (!publish) return common::Status::InvalidArgument("outbox publisher must not be empty");
+        if (limit == 0) return common::Status::InvalidArgument("outbox drain limit must be positive");
         std::vector<Event> batch;
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            batch.swap(pending_);
+            const auto count = std::min(limit, pending_.size());
+            batch.reserve(count);
+            for (std::size_t i = 0; i < count; ++i) batch.push_back(std::move(pending_[i]));
+            pending_.erase(pending_.begin(), pending_.begin() + static_cast<std::ptrdiff_t>(count));
         }
         std::vector<Event> failed;
         for (const auto& event : batch) if (!publish(event).ok()) failed.push_back(event);

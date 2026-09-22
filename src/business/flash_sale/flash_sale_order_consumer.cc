@@ -54,7 +54,8 @@ common::Status FlashSaleOrderConsumer::start() {
     if (queue_ == nullptr || repository_ == nullptr || inventory_ == nullptr) return common::Status::FailedPrecondition("flash-sale consumer is not configured");
     bool expected = false;
     if (!running_.compare_exchange_strong(expected, true)) return common::Status::AlreadyExists("flash-sale consumer is already running");
-    worker_ = std::thread([this] { run(); });
+    workers_.reserve(worker_count_);
+    for (std::size_t i = 0; i < worker_count_; ++i) workers_.emplace_back([this] { run(); });
     return common::Status::Ok();
 }
 
@@ -67,7 +68,10 @@ void FlashSaleOrderConsumer::run() {
 
 void FlashSaleOrderConsumer::stop() {
     if (!running_.exchange(false)) return;
-    if (worker_.joinable()) worker_.join();
+    for (auto& worker : workers_) {
+        if (worker.joinable()) worker.join();
+    }
+    workers_.clear();
 }
 
 }  // namespace live::business::flash_sale

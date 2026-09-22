@@ -119,7 +119,7 @@ if(ENABLE_MYSQL)
             src/storage/mysql/mysql_connection_pool.cc
             src/storage/mysql/mysql_transaction_store.cc)
         target_include_directories(ecommerce_mysql PUBLIC src ${MYSQL_INCLUDE_DIR})
-        target_link_libraries(ecommerce_mysql PUBLIC project_options ecommerce_business ${MYSQL_LIBRARY})
+        target_link_libraries(ecommerce_mysql PUBLIC project_options ecommerce_business ecommerce_observability ${MYSQL_LIBRARY})
         target_compile_definitions(ecommerce_mysql PUBLIC ECOMMERCE_HAS_MYSQL=1)
     else()
         message(STATUS "mysqlclient not found; MySQL transaction repository is disabled")

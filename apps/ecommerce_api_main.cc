@@ -229,7 +229,8 @@ int main(int argc, char** argv) {
     const char* redis_host = std::getenv("ECOMMERCE_REDIS_HOST");
     if (redis_host != nullptr) {
         redis = std::make_unique<live::kv::RedisKVStore>();
-        const auto redis_status = redis->connect(redis_host, 6379);
+        const auto redis_status = redis->connect(redis_host, 6379, std::chrono::seconds(2),
+                                                 envSize("ECOMMERCE_REDIS_POOL_SIZE", 8, 128));
         if (!redis_status.ok()) {
             std::cerr << "Redis configured but unavailable: " << redis_status.message() << '\n';
             return 1;
@@ -342,6 +343,17 @@ int main(int argc, char** argv) {
     if (promotion_gate == nullptr) promotion_gate = std::make_unique<live::business::promotion::FlashSaleAdmissionGate>();
     live::business::promotion::PromotionService promotions(std::move(promotion_gate));
     live::observability::MetricsRegistry metrics;
+#ifdef ECOMMERCE_HAS_MYSQL
+    if (mysql_store != nullptr) mysql_store->setMetrics(&metrics);
+#endif
+    const auto http_requests_metric = metrics.counterHandle("http_requests");
+    const auto http_response_2xx_metric = metrics.counterHandle("http_responses_2xx");
+    const auto http_response_3xx_metric = metrics.counterHandle("http_responses_3xx");
+    const auto http_response_4xx_metric = metrics.counterHandle("http_responses_4xx");
+    const auto http_response_5xx_metric = metrics.counterHandle("http_responses_5xx");
+    const auto http_duration_metric = metrics.histogramHandle("http_request_duration_ms");
+    const auto health_requests_metric = metrics.counterHandle("http_health_requests");
+    const auto product_queries_metric = metrics.counterHandle("product_query_requests");
     live::observability::StructuredLogger request_logger(&std::clog);
     live::traffic::TokenBucket flash_sale_limiter(10000.0, 2000.0);
     const char* admin_token = std::getenv("ECOMMERCE_ADMIN_TOKEN");
@@ -360,6 +372,7 @@ int main(int argc, char** argv) {
     std::unique_ptr<live::messaging::IOrderQueue> flash_order_queue;
     std::unique_ptr<live::messaging::IOrderQueue> flash_dead_letter_queue;
     const char* configured_flash_queue = std::getenv("ECOMMERCE_FLASH_SALE_QUEUE");
+    const std::size_t flash_consumer_workers = envSize("ECOMMERCE_FLASH_CONSUMER_WORKERS", 4, 64);
     const std::string flash_queue_mode = configured_flash_queue == nullptr
         ? (use_redis_flash_sale ? "redis" : "local")
         : configured_flash_queue;
@@ -377,7 +390,9 @@ int main(int argc, char** argv) {
         }
         flash_inventory_gateway = std::move(redis_inventory);
         auto redis_order_queue = std::make_unique<live::kv::RedisOrderQueue>(redis.get(), "flash_orders:{promo-1}");
-        if (const auto status = redis_order_queue->connectBlockingConsumer(redis_host, 6379); !status.ok()) {
+        if (const auto status = redis_order_queue->connectBlockingConsumer(redis_host, 6379,
+                                                                            std::chrono::seconds(2),
+                                                                            flash_consumer_workers); !status.ok()) {
             std::cerr << "failed to create dedicated Redis queue consumer connection: " << status.message() << '\n';
             return 1;
         }
@@ -401,7 +416,8 @@ int main(int argc, char** argv) {
 #endif
     std::unique_ptr<live::business::flash_sale::FlashSaleOrderConsumer> flash_consumer;
     flash_consumer = std::make_unique<live::business::flash_sale::FlashSaleOrderConsumer>(
-        flash_order_queue.get(), flash_dead_letter_queue.get(), flash_repo, flash_inventory_gateway.get(), promotions.admissionGate());
+        flash_order_queue.get(), flash_dead_letter_queue.get(), flash_repo, flash_inventory_gateway.get(),
+        promotions.admissionGate(), 5, flash_consumer_workers);
     if (!flash_consumer->start().ok()) {
         std::cerr << "failed to start flash-sale consumer\n";
         return 1;
@@ -449,12 +465,20 @@ int main(int argc, char** argv) {
     const std::size_t http_worker_count = envSize("ECOMMERCE_HTTP_WORKERS", 8, 256);
     const std::size_t http_queue_capacity = envSize("ECOMMERCE_HTTP_QUEUE_CAPACITY", 4096, 100000);
     live::gateway::http::HttpServer server(&loop, "0.0.0.0", port, http_max_connections,
-        [&metrics, &request_logger](const live::gateway::http::HttpRequest& request,
+        [http_requests_metric, http_response_2xx_metric, http_response_3xx_metric,
+         http_response_4xx_metric, http_response_5xx_metric, http_duration_metric,
+         &request_logger](const live::gateway::http::HttpRequest& request,
                    const live::gateway::http::HttpResponse& response,
                    std::uint64_t elapsed_us) {
-            metrics.increment("http_requests");
-            metrics.increment("http_responses_" + std::to_string(response.status_code / 100) + "xx");
-            metrics.observe("http_request_duration_ms", static_cast<double>(elapsed_us) / 1000.0);
+            http_requests_metric.add();
+            switch (response.status_code / 100) {
+                case 2: http_response_2xx_metric.add(); break;
+                case 3: http_response_3xx_metric.add(); break;
+                case 4: http_response_4xx_metric.add(); break;
+                case 5: http_response_5xx_metric.add(); break;
+                default: break;
+            }
+            http_duration_metric.observe(static_cast<double>(elapsed_us) / 1000.0);
             if (response.status_code >= 400) request_logger.logHttpError(request, response, elapsed_us);
         }, http_worker_count, http_queue_capacity);
     server.router().addRoute("POST", "/users/register", [&](const auto& request) {
@@ -483,7 +507,7 @@ int main(int argc, char** argv) {
         return jsonResponse(204, "No Content", "");
     });
     server.router().addRoute("GET", "/health", [&](const auto&) {
-        metrics.increment("http_health_requests");
+        health_requests_metric.add();
         return jsonResponse(200, "OK", "{\"status\":\"ok\"}");
     });
     server.router().addRoute("GET", "/products/sku-1", [&](const auto&) {
@@ -492,7 +516,7 @@ int main(int argc, char** argv) {
         std::ostringstream body;
         body << "{\"id\":\"" << jsonEscape(product.id) << "\",\"name\":\"" << jsonEscape(product.name)
              << "\",\"price_cents\":" << product.price_cents << ",\"on_sale\":" << (product.on_sale ? "true" : "false") << "}";
-        metrics.increment("product_query_requests");
+        product_queries_metric.add();
         return jsonResponse(200, "OK", body.str());
     });
     server.router().addRoute("GET", "/stock/sku-1", [&](const auto&) {

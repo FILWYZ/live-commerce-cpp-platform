@@ -53,6 +53,7 @@ private:
     std::vector<MYSQL*> idle_;
     std::vector<MYSQL*> all_;
     std::string active_endpoint_;
+    std::size_t in_use_{0};
     bool closing_{false};
 };
 

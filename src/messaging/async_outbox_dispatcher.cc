@@ -5,8 +5,9 @@
 namespace live::messaging {
 
 AsyncOutboxDispatcher::AsyncOutboxDispatcher(FileOutbox* outbox, Publish publish,
-                                             std::chrono::milliseconds retry_interval)
-    : outbox_(outbox), publish_(std::move(publish)), retry_interval_(retry_interval), current_delay_(retry_interval) {
+                                             std::chrono::milliseconds retry_interval, std::size_t batch_size)
+    : outbox_(outbox), publish_(std::move(publish)), retry_interval_(retry_interval),
+      current_delay_(retry_interval), batch_size_(batch_size == 0 ? 1 : batch_size) {
     if (retry_interval_ <= std::chrono::milliseconds::zero()) retry_interval_ = std::chrono::milliseconds(20);
     current_delay_ = retry_interval_;
 }
@@ -62,7 +63,7 @@ void AsyncOutboxDispatcher::run() {
         // next process start.
         bool delivered = true;
         if (outbox_ != nullptr && outbox_->size() > 0) {
-            delivered = outbox_->drain(publish_).ok();
+            delivered = outbox_->drain(publish_, batch_size_).ok();
         }
         if (stopping) return;
         if (delivered) {

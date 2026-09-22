@@ -3,7 +3,9 @@
 #include "common/error/status.h"
 
 #include <cstdint>
+#include <array>
 #include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <unordered_set>
 #include <unordered_map>
@@ -53,12 +55,17 @@ private:
     static bool decodeStock(const std::string& value, StockSnapshot* stock);
     static std::string encodeReservation(const Reservation& reservation);
     static bool decodeReservation(const std::string& value, Reservation* reservation);
+    static std::size_t shardFor(const std::string& sku_id);
     common::Status persistStockAndReservation(const std::string& sku_id,
                                               const StockSnapshot& stock,
                                               const std::string& operation_id,
                                               const Reservation& reservation);
 
-    mutable std::mutex mutex_;
+    static constexpr std::size_t kShardCount = 64;
+    mutable std::shared_mutex structure_mutex_;
+    mutable std::array<std::mutex, kShardCount> stock_shards_;
+    mutable std::array<std::mutex, kShardCount> persistence_shards_;
+    mutable std::mutex reservations_mutex_;
     std::unordered_map<std::string, StockSnapshot> stocks_;
     std::unordered_map<std::string, Reservation> reservations_;
     ::live::storage::LocalKVEngine* storage_{nullptr};

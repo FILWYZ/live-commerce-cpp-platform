@@ -3,6 +3,7 @@
 #include "business/inventory/inventory_service.h"
 #include "business/order/order_service.h"
 
+#include <chrono>
 #include <vector>
 
 namespace live::storage::mysql {
@@ -49,11 +50,31 @@ common::Status MySqlTransactionStore::connect(const std::vector<std::string>& ho
 void MySqlTransactionStore::close() { if (pool_ != nullptr) pool_->close(); }
 bool MySqlTransactionStore::connected() const { return pool_ != nullptr && pool_->connected(); }
 
+void MySqlTransactionStore::recordSql(const char* operation, const common::Status& status,
+                                       std::chrono::steady_clock::time_point started) const {
+    if (metrics_ == nullptr || operation == nullptr) return;
+    metrics_->increment(operation);
+    metrics_->observe(std::string(operation) + "_duration_ms",
+                      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
+    if (!status.ok()) metrics_->increment(std::string(operation) + "_errors");
+}
+
 common::Status MySqlTransactionStore::execute(MYSQL* connection, const std::string& sql) const {
-    if (connection == nullptr) return common::Status::FailedPrecondition("MySQL connection is not available");
-    if (mysql_query(connection, sql.c_str()) != 0) return common::Status::Internal(mysqlError(connection, "MySQL query failed"));
+    const auto started = std::chrono::steady_clock::now();
+    if (connection == nullptr) {
+        const auto status = common::Status::FailedPrecondition("MySQL connection is not available");
+        recordSql("mysql_sql", status, started);
+        return status;
+    }
+    if (mysql_query(connection, sql.c_str()) != 0) {
+        const auto status = common::Status::Internal(mysqlError(connection, "MySQL query failed"));
+        recordSql("mysql_sql", status, started);
+        return status;
+    }
     MYSQL_RES* result = mysql_store_result(connection); if (result != nullptr) mysql_free_result(result);
-    return common::Status::Ok();
+    const auto status = common::Status::Ok();
+    recordSql("mysql_sql", status, started);
+    return status;
 }
 common::Status MySqlTransactionStore::begin(MYSQL* connection) const { return execute(connection, "START TRANSACTION"); }
 common::Status MySqlTransactionStore::rollback(MYSQL* connection) const { return execute(connection, "ROLLBACK"); }

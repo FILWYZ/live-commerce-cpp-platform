@@ -88,8 +88,10 @@ common::Status MySqlConnectionPool::connect(const std::vector<std::string>& host
 void MySqlConnectionPool::close() {
     std::vector<MYSQL*> connections;
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::unique_lock<std::mutex> lock(mutex_);
         closing_ = true;
+        condition_.notify_all();
+        condition_.wait(lock, [this] { return in_use_ == 0; });
         connections.swap(all_);
         idle_.clear();
         active_endpoint_.clear();
@@ -104,6 +106,7 @@ MySqlConnectionPool::Lease MySqlConnectionPool::acquire(std::chrono::millisecond
     if (closing_ || idle_.empty()) return {};
     MYSQL* connection = idle_.back();
     idle_.pop_back();
+    ++in_use_;
     return Lease(this, connection);
 }
 
@@ -124,7 +127,12 @@ std::size_t MySqlConnectionPool::size() const {
 
 void MySqlConnectionPool::release(MYSQL* connection) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (closing_ || std::find(all_.begin(), all_.end(), connection) == all_.end()) {
+    if (in_use_ > 0) --in_use_;
+    if (closing_) {
+        condition_.notify_all();
+        return;
+    }
+    if (std::find(all_.begin(), all_.end(), connection) == all_.end()) {
         mysql_close(connection);
         return;
     }

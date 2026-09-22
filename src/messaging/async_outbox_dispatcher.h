@@ -19,7 +19,8 @@ public:
     using Publish = std::function<common::Status(const Event&)>;
 
     AsyncOutboxDispatcher(FileOutbox* outbox, Publish publish,
-                          std::chrono::milliseconds retry_interval = std::chrono::milliseconds(20));
+                          std::chrono::milliseconds retry_interval = std::chrono::milliseconds(20),
+                          std::size_t batch_size = 128);
     ~AsyncOutboxDispatcher();
 
     AsyncOutboxDispatcher(const AsyncOutboxDispatcher&) = delete;
@@ -37,6 +38,7 @@ private:
     Publish publish_;
     std::chrono::milliseconds retry_interval_;
     std::chrono::milliseconds current_delay_;
+    const std::size_t batch_size_;
     mutable std::mutex mutex_;
     std::condition_variable condition_;
     bool started_{false};

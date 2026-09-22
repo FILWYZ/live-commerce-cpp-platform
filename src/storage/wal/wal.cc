@@ -91,6 +91,15 @@ common::Status Wal::append(const WalRecord& record, bool sync) {
     return common::Status::Ok();
 }
 
+common::Status Wal::appendBatch(const std::vector<WalRecord>& records, bool sync) {
+    if (records.empty()) return common::Status::InvalidArgument("WAL batch must not be empty");
+    for (const auto& record : records) {
+        if (const auto status = append(record, false); !status.ok()) return status;
+    }
+    if (sync && ::fsync(fd_) != 0) return common::Status::Internal("failed to fsync WAL batch");
+    return common::Status::Ok();
+}
+
 common::Status Wal::replay(const std::function<common::Status(const WalRecord&)>& apply) const {
     if (fd_ < 0 || !apply) return common::Status::InvalidArgument("invalid WAL replay arguments");
     const int read_fd = ::open(path_.c_str(), O_RDONLY);
