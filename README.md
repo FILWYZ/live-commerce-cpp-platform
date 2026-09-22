@@ -65,10 +65,6 @@ ECOMMERCE_INVENTORY_MODE=local ./build/ecommerce_api_demo 8080
 docker compose -f deploy/compose/docker-compose.yml up --build
 ```
 
-## 文档入口
-
-[PROJECT_TECHNICAL_GUIDE.md](PROJECT_TECHNICAL_GUIDE.md) 是本项目的详细技术说明和面试手册，按启动、网络、网关、业务、缓存、KV、存储、消息、限流、观测、测试、工具和部署模块，解释运行逻辑、代码实现、设计取舍、故障处理、测试证明和大厂后端面试追问。
-
 ## 项目边界
 
 本项目只覆盖秒杀消费后台，不包含购物车、优惠券、支付、物流等业务域。当前 Compose 是单机实验环境，多实例只验证 API 层的基本共享和故障切换，不宣称具备 Redis Cluster、MySQL 主从、跨机房容灾或生产级最大容量。
